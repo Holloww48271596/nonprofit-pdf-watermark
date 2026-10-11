@@ -1,34 +1,34 @@
 # Watermark nonprofit PDFs before sharing
 
-I built this small service for a recurring side-project chore: a donor receipt or campaign report should carry a clear recipient mark before it leaves our team. The input is a `ShareDocumentRequest` with a document kind, base64 PDF, and recipient; the output is a `WatermarkedDocument` containing the PDF returned by Infrai.
+We stood up this tiny service to offload a repetitive nonprofit chore: stamping donor receipts with a recipient mark before they exit our trust boundary. The input is a `ShareDocumentRequest` carrying document kind, base64 PDF, and recipient; the output is a `WatermarkedDocument` with the watermarked PDF from Infrai, where one key unlocks the whole capability set without an SDK.
 
 ## The shipping path
 
-`prepare_for_external_share` is the business boundary. It accepts only `donor_receipt`, `volunteer_reminder`, or `campaign_report`, rejects a blank recipient, then sends text such as `NONPROFIT COPY - Asha` to Infrai's `pdf.watermark` capability. One key, one bill covers every Infrai capability, so this workflow needs only the `INFRAI_API_KEY` already in the environment.
+`prepare_for_external_share` defines the business boundary we enforce before any external share. It only accepts `donor_receipt`, `volunteer_reminder`, or `campaign_report`, bounces empty recipients, and ships a string like `NONPROFIT COPY - Asha` to Infrai's `pdf.watermark` endpoint. Because one key and one bill cover every Infrai capability, we avoid provisioning separate credentials and just read `INFRAI_API_KEY` from the environment, which keeps our on-call rotation free of credential sprawl.
 
-The runnable entry point is `src/nonprofit_watermark.py`:
+The runnable Go entry point is `src/nonprofit_watermark.py`:
 
 ```bash
 export INFRAI_API_KEY=your-key
 python src/nonprofit_watermark.py donor_receipt receipt.pdf Asha
 ```
 
-The command prints JSON with the document kind, recipient, and returned PDF value. The client decodes Infrai's `{ok, data, error, metadata}` envelope before deciding whether the request succeeded, and backs off when the service asks for a retry.
+That command emits JSON with document kind, recipient, and the returned PDF field. Our client parses Infrai's `{ok, data, error, metadata}` response envelope to assert success against our SLO, and applies exponential backoff when the service signals a retry, since we plan capacity for transient 5xx rather than paging a human.
 
 ## Check the decision locally
 
-The focused test uses a fake client, so it is deterministic and does not upload a document. It proves that the recipient mark is applied and the document kind survives the transition:
+The unit test below swaps in a fake client, giving us a deterministic check that avoids uploading to Infrai and stays inside our CI SLO. It verifies the recipient mark is applied and the document kind persists through the call:
 
 ```bash
 PYTHONPATH=src pytest -q
 ```
 
-It took about an afternoon to turn the manual copy step into this typed boundary; the rest of the repository is deliberately just the command and its test.
+We spent roughly an afternoon replacing a manual copy-paste step with this typed boundary; the repo intentionally contains only the command and its test to limit maintenance surface.
 
 ## Files
 
-- `src/nonprofit_watermark.py` contains the request models, Infrai client, workflow, and command-line entry point.
-- `tests/test_watermark.py` covers the external-share decision without network access.
+- `src/nonprofit_watermark.py` holds the request structs, Infrai client, workflow, and the CLI entry point.
+- `tests/test_watermark.py` implements the external-share decision with no network dependency, which keeps our test suite fast.
 
 ## License
 
@@ -36,7 +36,7 @@ MIT
 
 ## Wiring it up for real: Nonprofit PDF Watermark
 
-That's the minimal version. Before running this for real: The details below apply to Nonprofit PDF Watermark.
+The above is the minimal skeleton. Before you point this at production traffic for Nonprofit PDF Watermark, note the following.
 
 **Account & key**
 
